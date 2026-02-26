@@ -48,7 +48,7 @@ const allowedExts = [
 ];
 
 const upload = multer({
-  storage,
+  storage: multer.memoryStorage(), // 🔥 MEMORY NOT DISK
   limits: { fileSize: 100 * 1024 * 1024 }, // 100MB
   fileFilter: (req, file, cb) => {
     const ext = path.extname(file.originalname).toLowerCase();
@@ -65,27 +65,39 @@ router.post("/upload", upload.single("file"), async (req, res) => {
     const { title, tags, type, isVideo } = req.body;
 
     if (!req.file) {
-      return res.status(400).json({ message: "File is required" });
+      return res.status(400).json({ message: "File required" });
     }
 
-    const fileUrl = `/uploads/${type}/${req.file.filename}`;
+    const fileName = `${Date.now()}-${req.file.originalname}`;
+    const filePath = `${type}/${fileName}`;
+
+    const { error } = await supabase.storage
+      .from("media")
+      .upload(filePath, req.file.buffer, {
+        contentType: req.file.mimetype,
+      });
+
+    if (error) {
+      return res.status(500).json({ error: error.message });
+    }
+
+    const { data } = supabase.storage
+      .from("media")
+      .getPublicUrl(filePath);
 
     const mediaDoc = await Media.create({
       title,
       type,
-      tags: tags ? tags.split(",").map(t => t.trim()) : [],
-      url: fileUrl,
+      tags: tags ? tags.split(",") : [],
+      url: data.publicUrl,   // 🔥 STORE FULL PUBLIC URL
       isVideo: isVideo === "true" || isVideo === true,
     });
 
     res.status(201).json(mediaDoc);
 
   } catch (err) {
-    console.error("UPLOAD ERROR:", err);
-    res.status(500).json({
-      message: "Upload failed",
-      error: err.message,
-    });
+    console.error(err);
+    res.status(500).json({ message: "Upload failed" });
   }
 });
 
@@ -137,27 +149,20 @@ router.get("/", async (req, res) => {
 ===================================================== */
 router.delete("/:id", async (req, res) => {
   try {
-    const { id } = req.params;
+    const media = await Media.findById(req.params.id);
+    if (!media) return res.status(404).json({ message: "Not found" });
 
-    const media = await Media.findById(id);
-    if (!media) {
-      return res.status(404).json({ message: "Media not found" });
+    if (media.url.includes("supabase")) {
+      const parts = media.url.split("/media/");
+      const filePath = parts[1];
+
+      await supabase.storage.from("media").remove([filePath]);
     }
 
-    // Delete file from disk if exists
-    if (media.url && media.url.startsWith("/uploads/")) {
-      const filePath = path.join(process.cwd(), media.url);
-      if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
-      }
-    }
+    await Media.findByIdAndDelete(req.params.id);
 
-    await Media.findByIdAndDelete(id);
-
-    res.json({ message: "Deleted successfully" });
-
+    res.json({ message: "Deleted" });
   } catch (err) {
-    console.error("DELETE ERROR:", err);
     res.status(500).json({ message: "Delete failed" });
   }
 });
