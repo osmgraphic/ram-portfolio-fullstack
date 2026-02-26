@@ -5,7 +5,7 @@ import dotenv from "dotenv";
 
 import connectDB from "./config/db.js";
 import mediaRoutes from "./routes/mediaRoutes.js";
-import brochureRoutes from "./routes/brochureRoutes.js";
+import brochureRoutes from "./routes/brochureRoutes2.js";
 
 dotenv.config();
 connectDB();
